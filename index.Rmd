@@ -50,7 +50,9 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 ### Introduction 
 
-The dataset I am using for this project is “raptor_by_player” and “nba_tattoos” merged together from fivethirtyeight. I wanted to do something basketball related because I’m an NBA fan and I’ve like using analytics as a better way to analyze the game. The raptor_by_player dataset using a metric called “RAPTOR” to evaluate NBA players. It incorporates box score data such as points and rebounds, and combines it with team performance data such as net rating to create a single number rating for offense and defense. These two values are then averaged to create a single number metric. The “nba_tattoos” dataset contains a list of NBA players and whether or not they have tattoos. 
+The dataset I am using for this project is “raptor_by_player” and “nba_tattoos” merged together from fivethirtyeight. I wanted to do something basketball related because I’m an NBA fan and I’ve like using analytics as a better way to analyze the game. The raptor_by_player dataset using a metric called “RAPTOR” to evaluate NBA players. It incorporates box score data such as points and rebounds, and combines it with team performance data such as net rating to create a single number rating for offense and defense. These two values are then averaged to create a single number metric. The “nba_tattoos” dataset contains a list of NBA players and whether or not they have tattoos. There are 3232 total observations. There are 972 players with tattoos and 843 players without tattoos. 
+
+The mp variable indicates total number of minutes the player played in a season. The poss variable indicates total number of posessions the player was on the court. The predator variables use the raptor and age values to predict the players raptor score in the following season. 
 
 ```{R}
 library(tidyverse)
