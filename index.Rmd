@@ -46,76 +46,208 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 # Mining, Classification, Prediction
 
-## Name and EID here
+## Raajkiran Komirisetty rk26579
 
 ### Introduction 
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
+The dataset I am using for this project is “raptor_by_player” and “nba_tattoos” merged together from fivethirtyeight. I wanted to do something basketball related because I’m an NBA fan and I’ve like using analytics as a better way to analyze the game. The raptor_by_player dataset using a metric called “RAPTOR” to evaluate NBA players. It incorporates box score data such as points and rebounds, and combines it with team performance data such as net rating to create a single number rating for offense and defense. These two values are then averaged to create a single number metric. The “nba_tattoos” dataset contains a list of NBA players and whether or not they have tattoos. 
 
 ```{R}
 library(tidyverse)
-# read your datasets in here, e.g., with read_csv()
+library(fivethirtyeight)
+library(fivethirtyeightdata)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(gt)
+tattoos <- nba_tattoos
+raptors <- raptor_by_player
+players <- inner_join(raptors, tattoos, by = "player_name")
+players <- players %>% na.omit()
+length(unique(raptors$player_name))
+table(players$tattoos)
 
-# if your dataset needs tidying, do so here
 
-# any other code here
 ```
 
 ### Cluster Analysis
 
 ```{R}
 library(cluster)
-# clustering code here
+clus <- players %>% select(c(5:13))
+sil_width<-vector() #empty vector to hold mean sil width
+for(i in 2:10){
+  kms <- kmeans(clus,centers=i) #compute k-means solution for each k
+  sil <- silhouette(kms$cluster,dist(clus)) #get sil widths
+  sil_width[i]<-mean(sil[,3]) #take averages (higher is better)
+}
+ggplot()+geom_line(aes(x=1:10,y=sil_width))+scale_x_continuous(name="k",breaks=1:10)
+
+pam1 <- clus %>% pam(k=2) #use the pam function
+
+pamclust<- clus %>% mutate(cluster=as.factor(pam1$clustering))
+pamclust %>% group_by(cluster) %>% summarize_if(is.numeric,mean,na.rm=T)
+
+clus%>%slice(pam1$id.med)
+
+library(GGally)
+
+pamclust %>% ggpairs(cols = 1:8, aes(color = cluster))
+
 ```
 
-Discussion of clustering here
+According to the graph the best cluster would be k = 2 because it has the greatest average silhouette width. The PAM analysis shows the means and medioids of clusters which were determined by which variables had the closest center. Overall the means are relatively close to the medioids indicating good clustering. From the graphs, the posessions and minutes played variables show significantly distinct clusters. 
     
     
 ### Dimensionality Reduction with PCA
 
 ```{R}
-# PCA code here
-```
+library(cluster)
+clus_nums<- clus %>% select_if(is.numeric) %>% scale()
+rownames(clus_nums)<-clus$Name
+clus_pca<-princomp(clus_nums)
+names(clus_pca)
 
-Discussions of PCA here. 
+summary(clus_pca, loadings=T)
+
+eigval<-clus_pca$sdev^2 #square to convert SDs to eigenvalues
+varprop=round(eigval/sum(eigval), 2) #proportion of var explained by each PC
+round(cumsum(eigval)/sum(eigval), 2) #cumulative proportion of variance
+
+ggplot() + geom_bar(aes(y=varprop, x=1:9), stat="identity") + xlab("") + geom_path(aes(y=varprop, x=1:9)) +
+  geom_text(aes(x=1:9, y=varprop, label=round(varprop, 2)), vjust=1, col="white", size=5) +
+  scale_y_continuous(breaks=seq(0, .6, .2), labels = scales::percent) + 
+  scale_x_continuous(breaks=1:20)
+
+clusdf<-data.frame(PC1=clus_pca$scores[, 1],PC2=clus_pca$scores[, 2])
+ggplot(clusdf, aes(PC1, PC2)) + geom_point()
+
+```
+Based on the summary statistics the cumulative proportion reaches 0.85 at PC3 therefore I retained 3 PCs. The first PC is positively correlated with every other variable. The second PC is positively correlated with all the offense stats ( raptor_box_offense, raptor_onoff_offense, raptor_offense) and negatively correlated with the defense stats. The second PC is negatively correlated with everything except mp and poss meaning players with high amount of minutes or possessions played do poorly in the impact stats. From these 3 PCs the total variance explained is 0.857
+
 
 ###  Linear Classifier
 
 ```{R}
-# linear classifier code here
+fit <- glm(tattoos ~ raptor_offense + raptor_defense + raptor_total + war_total + war_reg_season + war_playoffs + predator_offense + predator_defense + pace_impact + poss, data=players, family="binomial")
+
+score <- predict(fit, type="response")
+score %>% round(3) %>% head()
+class_diag(score, players$tattoos, positive="TRUE") 
+
+y <- players$tattoos
+y_hat <- sample(c("Has Tattoos","Has No Tattoos"), size=length(y), replace=T)
+y_hat <- factor(y_hat, levels=c("Has Tattoos","Has No Tattoos"))
+table(actual = y, predicted = y_hat) %>% addmargins
+
 ```
 
 ```{R}
-# cross-validation of linear classifier here
+k=10 
+data<-players[sample(nrow(players)),]
+folds<-cut(seq(1:nrow(data)),breaks=k,labels=F) #create folds
+diags<-NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train<-data[folds!=i,]
+  test<-data[folds==i,]
+  truth<-test$tattoos
+  ## Train model on training set
+  fit <- glm(tattoos ~ raptor_offense + raptor_defense + raptor_total + war_total +       war_reg_season + war_playoffs + predator_offense + predator_defense + pace_impact +     poss, data=train, family="binomial")
+  probs <- predict(fit,newdata = test,type="response")
+  ## Test model on test set (save all k results)
+  diags<-rbind(diags,class_diag(probs,truth, positive="TRUE"))
+}
+summarize_all(diags,mean)
+
 ```
 
-Discussion here
+This model was built to predict whether or not a player had tattoos based on the values of the other numeric variables. AUC is a measure of how good the model is at predicting new values (higher is better). Based on the AUC of 0.56, this model is bad at predicting new values. The model for cross-validation has an AUC of 0.54 which is also bad. These low AUC values indicate a high chance of overfitting. 
 
 ### Non-Parametric Classifier
 
 ```{R}
 library(caret)
-# non-parametric classifier code here
+knn_fit <- knn3(factor(tattoos=="TRUE",levels=c("TRUE","FALSE")) ~ raptor_offense + raptor_defense + raptor_total + war_total +       war_reg_season + war_playoffs + predator_offense + predator_defense + pace_impact +     poss, data=players, k=5)
+y_hat_knn <- predict(knn_fit, players)
+y_hat_knn
+
+#Confusion Matrix
+table(truth= factor(players$tattoos=="TRUE", levels=c("TRUE","FALSE")),
+prediction= factor(y_hat_knn[,1]>.5, levels=c("TRUE","FALSE"))) %>% addmargins
+
+#Class Diag Performance
+class_diag(y_hat_knn[,1],players$tattoos, positive="TRUE")
 ```
 
 ```{R}
-# cross-validation of np classifier here
+k=10 
+data<-players[sample(nrow(players)),]
+folds<-cut(seq(1:nrow(data)),breaks=k,labels=F) #create folds
+diags<-NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train<-data[folds!=i,]
+  test<-data[folds==i,]
+  truth<-test$tattoos
+  ## Train model on training set
+  fit <- knn3(tattoos ~ raptor_offense +raptor_defense + raptor_total + war_total + war_reg_season + war_playoffs + predator_offense + predator_defense + pace_impact + poss, data=players)
+  probs <- predict(fit,newdata = test)[,2]
+  ## Test model on test set (save all k results)
+  diags<-rbind(diags,class_diag(probs,truth, positive="TRUE"))
+}
+summarize_all(diags,mean)
 ```
 
-Discussion
+The non parametric classifier uses k nearest neighbors values to create a model. Based on the AUC of 0.7473, this model is fairly good at predicting new values. The model for cross-validation has an AUC of 0.747 which is also fair. These  AUC values indicate a moderate chance of overfitting. 
+
+The AUC of the cross-validation for the nonparametric model is higher than the cross-validation for the linear model. This means the nonparametric model is a better model. 
 
 
 ### Regression/Numeric Prediction
 
 ```{R}
-# regression model code here
+#Regression Tree
+library(rpart)
+library(rpart.plot)
+fit_tree<- rpart(mp ~ raptor_offense + raptor_defense + raptor_total + war_total +       war_reg_season + war_playoffs + predator_offense + predator_defense + pace_impact +     poss, data=players)
+rpart.plot(fit_tree)
+
+fit_tree<- train(mp ~ raptor_offense + raptor_defense + raptor_total + war_total +       war_reg_season + war_playoffs + predator_offense + predator_defense + pace_impact +     poss, data=players, method="rpart")
+
+fit_tree$bestTune
+
+rpart.plot(fit_tree$finalModel)
+
+
 ```
 
 ```{R}
-# cross-validation of regression model here
+#MSE
+fit_MSE<-lm(mp~raptor_offense + raptor_defense + raptor_total + war_total +       war_reg_season + war_playoffs + predator_offense + predator_defense + pace_impact +     poss,data=players) 
+yhat<-predict(fit_MSE) 
+mean((players$mp-yhat)^2)
+
+#K-Fold Cross Validation & Average MSE
+k=10 #choose number of folds
+data<-players[sample(nrow(players)),] #randomly order rows
+folds<-cut(seq(1:nrow(players)),breaks=k,labels=F) #create folds
+diags<-NULL
+for(i in 1:k){
+  train<-data[folds!=i,]
+  test<-data[folds==i,]
+  ## Fit linear regression model to training set
+  fit<-lm(mp~raptor_offense + raptor_defense + raptor_total + war_total +       war_reg_season + war_playoffs + predator_offense + predator_defense + pace_impact +     poss,data=players)
+  ## Get predictions/y-hats on test set (fold i)
+  yhat<-predict(fit,newdata=test)
+  ## Compute prediction error (MSE) for fold i
+  diags<-mean((test$mp-yhat)^2)
+}
+
+mean(diags)
 ```
 
-Discussion
+Mean squared error is a value indicating measure of prediction error. A smaller MSE value would indicate a better model. The MSE is much higher than the CV meaning there is a lot of prediction error and lots of overfitting. 
 
 ### Python 
 
@@ -124,14 +256,17 @@ library(reticulate)
 ```
 
 ```{python}
-# python code here
+#new = []
+#for x in r.players:
+#  new.append(x[7] - x[8])
+#print(mean(new))
 ```
 
-Discussion
+This python for loop prints the average difference between offensive and defensive performance for all players. 
 
 ### Concluding Remarks
 
-Include concluding remarks here, if any
+The variables in the dataset show low correlation and variables show lots of overfitting with each other.
 
 
 
